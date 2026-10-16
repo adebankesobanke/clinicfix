@@ -10,6 +10,14 @@ out-tsc
 
 # dependencies
 node_modules
+.venv/
+.pythonlibs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
 
 # IDEs and editors
 /.idea

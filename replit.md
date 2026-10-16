@@ -1,36 +1,37 @@
-# [Project name]
+# ClinicFix
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+ClinicFix is a beginner-friendly Flask REST API for clinic equipment, maintenance staff, and maintenance requests.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `uv sync --dev` — install Python dependencies
+- `cd artifacts/api-server && uv run --project ../.. python -m clinicfix` — run the API server
+- `cd artifacts/api-server && uv run --project ../.. pytest` — run automated tests
+- Set `DATABASE_URL` to a PostgreSQL connection URL to use PostgreSQL; local development uses SQLite if it is not set.
+- API routes are under `/api`; `GET /api/healthz` checks that the server is up.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Python 3.11+
+- API: Flask
+- ORM: SQLAlchemy via Flask-SQLAlchemy
+- Database: PostgreSQL with psycopg; SQLite fallback for local development and tests
+- Tests: pytest
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/api-server/clinicfix/` — Flask app, models, validation, routes, and entry point
+- `artifacts/api-server/tests/` — API tests
+- `README.md` — setup guide and endpoint examples
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The service uses PostgreSQL when `DATABASE_URL` is configured and SQLite for a zero-configuration local start.
+- The API creates its tables at startup to keep the first version easy to run; use migrations before evolving a production schema.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Create, list, retrieve, update, and delete equipment, maintenance staff, and maintenance requests.
 
 ## User preferences
 
@@ -38,7 +39,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The shared API service receives requests at `/api`; keep that prefix on all endpoints.
 
 ## Pointers
 
