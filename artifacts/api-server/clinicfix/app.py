@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, jsonify
+from flask_jwt_extended import JWTManager
 from werkzeug.exceptions import BadRequest, MethodNotAllowed, NotFound
 
 from .models import db
@@ -21,11 +22,14 @@ def create_app(test_config=None):
     app.config.update(
         SQLALCHEMY_DATABASE_URI=database_url(),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        JWT_SECRET_KEY=os.environ.get("JWT_SECRET_KEY", "dev-only-change-me"),
+        JWT_ACCESS_TOKEN_EXPIRES=900,
     )
     if test_config:
         app.config.update(test_config)
 
     db.init_app(app)
+    JWTManager(app)
     app.register_blueprint(api, url_prefix="/api")
 
     @app.errorhandler(BadRequest)

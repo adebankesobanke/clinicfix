@@ -78,3 +78,35 @@ class MaintenanceRequest(db.Model):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(254), nullable=False, unique=True)
+    password_hash = db.Column(db.String(256), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="technician")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    must_change_password = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+    def set_password(self, password: str) -> None:
+        from werkzeug.security import generate_password_hash
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        from werkzeug.security import check_password_hash
+        return check_password_hash(self.password_hash, password)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "role": self.role,
+            "is_active": self.is_active,
+            "must_change_password": self.must_change_password,
+            "created_at": self.created_at.isoformat(),
+        }
