@@ -1,7 +1,7 @@
 import pytest
 
 from clinicfix.app import create_app
-from clinicfix.models import User, db
+from clinicfix.models import MaintenanceStaff, User, db
 
 
 @pytest.fixture()
@@ -239,3 +239,31 @@ def test_login_requires_email_and_password(client):
     assert "error" in email_only_response.json
     assert empty_body_response.status_code == 400
     assert "error" in empty_body_response.json
+
+
+def test_user_can_link_to_maintenance_staff(client):
+    with client.application.app_context():
+        staff = MaintenanceStaff(
+            name="Assigned Technician",
+            email="staff-record@example.com",
+        )
+        user = User(
+            name="Technician Account",
+            email="login-account@example.com",
+            role="technician",
+            maintenance_staff=staff,
+        )
+        user.set_password("TestPass123")
+        admin = User(
+            name="Administrator",
+            email="admin-account@example.com",
+            role="admin",
+        )
+        admin.set_password("AdminPass123")
+        db.session.add_all([staff, user, admin])
+        db.session.commit()
+
+        assert user.maintenance_staff_id == staff.id
+        assert user.maintenance_staff is staff
+        assert staff.user is user
+        assert admin.maintenance_staff_id is None

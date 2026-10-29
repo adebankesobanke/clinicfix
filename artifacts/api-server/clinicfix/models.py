@@ -38,6 +38,11 @@ class MaintenanceStaff(db.Model):
     specialty = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    user = db.relationship(
+        "User",
+        back_populates="maintenance_staff",
+        uselist=False,
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -85,6 +90,17 @@ class User(db.Model):
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(254), nullable=False, unique=True)
     password_hash = db.Column(db.String(256), nullable=False)
+    maintenance_staff_id = db.Column(
+        db.Integer,
+        db.ForeignKey("maintenance_staff.id", ondelete="RESTRICT"),
+        nullable=True,
+        unique=True,
+    )
+    maintenance_staff = db.relationship(
+        "MaintenanceStaff",
+        back_populates="user",
+        uselist=False,
+    )
     role = db.Column(db.String(20), nullable=False, default="technician")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     must_change_password = db.Column(db.Boolean, nullable=False, default=True)
