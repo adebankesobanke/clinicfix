@@ -184,3 +184,16 @@ def test_login_inactive_user(client):
     )
     assert response.status_code == 401
     assert response.json["error"] == "Invalid email or password."
+
+
+def test_login_requires_email_and_password(client):
+    email_only_response = client.post(
+        "/api/auth/login",
+        json={"email": "technician@example.com"},
+    )
+    empty_body_response = client.post("/api/auth/login", json={})
+
+    assert email_only_response.status_code == 400
+    assert "error" in email_only_response.json
+    assert empty_body_response.status_code == 400
+    assert "error" in empty_body_response.json
