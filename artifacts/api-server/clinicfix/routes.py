@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, request
+from flask_jwt_extended import create_access_token
 from sqlalchemy.exc import IntegrityError
 
-from .models import Equipment, MaintenanceRequest, MaintenanceStaff, db
+from .models import Equipment, MaintenanceRequest, MaintenanceStaff, User, db
 from .validation import validate_payload
 
 api = Blueprint("api", __name__)
