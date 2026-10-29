@@ -165,3 +165,22 @@ def test_login_wrong_password(client):
     )
     assert response.status_code == 401
     assert response.json["error"] == "Invalid email or password."
+
+
+def test_login_inactive_user(client):
+    with client.application.app_context():
+        user = User(
+            name="Inactive Technician",
+            email="inactive@example.com",
+            is_active=False,
+        )
+        user.set_password("TestPass123")
+        db.session.add(user)
+        db.session.commit()
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "inactive@example.com", "password": "TestPass123"},
+    )
+    assert response.status_code == 401
+    assert response.json["error"] == "Invalid email or password."
