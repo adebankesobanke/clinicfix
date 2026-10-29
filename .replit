@@ -30,3 +30,8 @@ externalPort = 8080
 [[ports]]
 localPort = 8081
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+JWT_SECRET_KEY = "Generate a random secret of 32 bytes (32 random bytes is a good choice). Use a trusted password generator or have Replit Agent generate a random value and enter it directly into the secret field without displaying it in chat."
