@@ -1,0 +1,1 @@
+- [PostgreSQL schema safety](postgres-schema-safety.md) — propose explicit migrations for existing tables and wait for user approval before applying them.
