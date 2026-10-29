@@ -150,3 +150,18 @@ def test_login_success(client):
     assert response.json["token_type"] == "Bearer"
     assert isinstance(response.json["access_token"], str)
     assert response.json["access_token"]
+
+
+def test_login_wrong_password(client):
+    with client.application.app_context():
+        user = User(name="Test Technician", email="technician@example.com")
+        user.set_password("TestPass123")
+        db.session.add(user)
+        db.session.commit()
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "technician@example.com", "password": "WrongPass123"},
+    )
+    assert response.status_code == 401
+    assert response.json["error"] == "Invalid email or password."
