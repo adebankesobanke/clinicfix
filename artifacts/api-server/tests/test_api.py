@@ -19,14 +19,33 @@ def client(tmp_path):
         db.drop_all()
 
 
-def create_equipment(client, **overrides):
+def login_headers(client):
+    with client.application.app_context():
+        user = User(
+            name="API Test Technician",
+            email="api-test@example.com",
+            role="technician",
+        )
+        user.set_password("TestPass123")
+        db.session.add(user)
+        db.session.commit()
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "api-test@example.com", "password": "TestPass123"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json['access_token']}"}
+
+
+def create_equipment(client, headers, **overrides):
     payload = {
         "name": "Portable X-ray",
         "category": "Imaging",
         "location": "Room 3",
         **overrides,
     }
-    return client.post("/api/equipment", json=payload)
+    return client.post("/api/equipment", json=payload, headers=headers)
 
 
 def test_health_check(client):
@@ -35,49 +54,61 @@ def test_health_check(client):
     assert response.json["status"] == "ok"
 
 
+def test_crud_requires_authentication(client):
+    response = client.get("/api/equipment")
+    assert response.status_code == 401
+
+
 def test_equipment_crud(client):
-    created = create_equipment(client, serial_number="XR-100")
+    headers = login_headers(client)
+    created = create_equipment(client, headers, serial_number="XR-100")
     assert created.status_code == 201
     equipment_id = created.json["id"]
 
-    assert client.get("/api/equipment").json[0]["name"] == "Portable X-ray"
-    assert client.get(f"/api/equipment/{equipment_id}").status_code == 200
+    assert client.get("/api/equipment", headers=headers).json[0]["name"] == "Portable X-ray"
+    assert client.get(f"/api/equipment/{equipment_id}", headers=headers).status_code == 200
 
     updated = client.patch(
-        f"/api/equipment/{equipment_id}", json={"location": "Room 5"}
+        f"/api/equipment/{equipment_id}", json={"location": "Room 5"}, headers=headers
     )
     assert updated.status_code == 200
     assert updated.json["location"] == "Room 5"
 
-    assert client.delete(f"/api/equipment/{equipment_id}").status_code == 204
-    assert client.get(f"/api/equipment/{equipment_id}").status_code == 404
+    assert client.delete(f"/api/equipment/{equipment_id}", headers=headers).status_code == 204
+    assert client.get(f"/api/equipment/{equipment_id}", headers=headers).status_code == 404
 
 
 def test_staff_crud(client):
+    headers = login_headers(client)
     created = client.post(
         "/api/maintenance-staff",
         json={"name": "Ada Tech", "email": "ADA@example.com"},
+        headers=headers,
     )
     assert created.status_code == 201
     staff_id = created.json["id"]
     assert created.json["email"] == "ada@example.com"
 
-    assert client.get("/api/maintenance-staff").status_code == 200
-    assert client.get(f"/api/maintenance-staff/{staff_id}").status_code == 200
+    assert client.get("/api/maintenance-staff", headers=headers).status_code == 200
+    assert client.get(f"/api/maintenance-staff/{staff_id}", headers=headers).status_code == 200
     assert (
         client.patch(
-            f"/api/maintenance-staff/{staff_id}", json={"is_active": False}
+            f"/api/maintenance-staff/{staff_id}",
+            json={"is_active": False},
+            headers=headers,
         ).json["is_active"]
         is False
     )
-    assert client.delete(f"/api/maintenance-staff/{staff_id}").status_code == 204
+    assert client.delete(f"/api/maintenance-staff/{staff_id}", headers=headers).status_code == 204
 
 
 def test_maintenance_request_crud_and_equipment_delete_guard(client):
-    equipment_id = create_equipment(client).json["id"]
+    headers = login_headers(client)
+    equipment_id = create_equipment(client, headers).json["id"]
     staff = client.post(
         "/api/maintenance-staff",
         json={"name": "Sam Service", "email": "sam@example.com"},
+        headers=headers,
     )
     staff_id = staff.json["id"]
 
@@ -89,44 +120,55 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
             "description": "The power button is stuck.",
             "priority": "high",
         },
+        headers=headers,
     )
     assert created.status_code == 201
     request_id = created.json["id"]
     assert created.json["status"] == "open"
-    assert client.delete(f"/api/equipment/{equipment_id}").status_code == 409
+    assert client.delete(f"/api/equipment/{equipment_id}", headers=headers).status_code == 409
 
-    assert client.get("/api/maintenance-requests").status_code == 200
-    assert client.get(f"/api/maintenance-requests/{request_id}").status_code == 200
+    assert client.get("/api/maintenance-requests", headers=headers).status_code == 200
+    assert client.get(f"/api/maintenance-requests/{request_id}", headers=headers).status_code == 200
     updated = client.patch(
-        f"/api/maintenance-requests/{request_id}", json={"status": "completed"}
+        f"/api/maintenance-requests/{request_id}",
+        json={"status": "completed"},
+        headers=headers,
     )
     assert updated.status_code == 200
     assert updated.json["status"] == "completed"
 
-    assert client.delete(f"/api/maintenance-requests/{request_id}").status_code == 204
-    assert client.delete(f"/api/equipment/{equipment_id}").status_code == 204
+    assert client.delete(f"/api/maintenance-requests/{request_id}", headers=headers).status_code == 204
+    assert client.delete(f"/api/equipment/{equipment_id}", headers=headers).status_code == 204
 
 
 def test_validation_and_conflicts(client):
-    invalid = client.post("/api/equipment", json={"name": "   ", "category": 12})
+    headers = login_headers(client)
+    invalid = client.post(
+        "/api/equipment",
+        json={"name": "   ", "category": 12},
+        headers=headers,
+    )
     assert invalid.status_code == 400
     assert "errors" in invalid.json
 
-    assert create_equipment(client, serial_number="DUPLICATE").status_code == 201
-    assert create_equipment(client, serial_number="DUPLICATE").status_code == 409
+    assert create_equipment(client, headers, serial_number="DUPLICATE").status_code == 201
+    assert create_equipment(client, headers, serial_number="DUPLICATE").status_code == 409
 
     missing_reference = client.post(
         "/api/maintenance-requests",
         json={"equipment_id": 999, "description": "Needs inspection"},
+        headers=headers,
     )
     assert missing_reference.status_code == 404
 
 
 def test_json_body_is_required(client):
+    headers = login_headers(client)
     response = client.post(
         "/api/equipment",
         data='{"name":"Monitor"}',
         content_type="text/plain",
+        headers=headers,
     )
     assert response.status_code == 400
 

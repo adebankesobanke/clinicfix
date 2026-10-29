@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, jwt_required
 from sqlalchemy.exc import IntegrityError
 
 from .models import Equipment, MaintenanceRequest, MaintenanceStaff, User, db
@@ -80,6 +80,7 @@ def login():
 
 @api.route("/<resource_path>", defaults={"record_id": None}, methods=["GET", "POST"])
 @api.route("/<resource_path>/<int:record_id>", methods=["GET", "PATCH", "DELETE"])
+@jwt_required()
 def records(resource_path, record_id):
     resource = RESOURCES.get(resource_path)
     if resource is None:
