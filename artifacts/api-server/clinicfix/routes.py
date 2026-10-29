@@ -51,6 +51,33 @@ def health():
     return jsonify({"status": "ok", "service": "ClinicFix API"})
 
 
+@api.post("/auth/login")
+def login():
+    if not request.is_json:
+        return error("Email and password are required.", 400)
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return error("Email and password are required.", 400)
+
+    email = payload.get("email")
+    password = payload.get("password")
+    if (
+        not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(password, str)
+        or not password.strip()
+    ):
+        return error("Email and password are required.", 400)
+
+    user = User.query.filter_by(email=email.strip().lower()).first()
+    if user is None or not user.is_active or not user.check_password(password):
+        return error("Invalid email or password.", 401)
+
+    access_token = create_access_token(identity=str(user.id))
+    return jsonify({"access_token": access_token, "token_type": "Bearer"}), 200
+
+
 @api.route("/<resource_path>", defaults={"record_id": None}, methods=["GET", "POST"])
 @api.route("/<resource_path>/<int:record_id>", methods=["GET", "PATCH", "DELETE"])
 def records(resource_path, record_id):
