@@ -1,7 +1,7 @@
 import pytest
 
 from clinicfix.app import create_app
-from clinicfix.models import db
+from clinicfix.models import User, db
 
 
 @pytest.fixture()
@@ -129,3 +129,24 @@ def test_json_body_is_required(client):
         content_type="text/plain",
     )
     assert response.status_code == 400
+
+
+def test_login_success(client):
+    with client.application.app_context():
+        user = User(
+            name="Test Technician",
+            email="technician@example.com",
+            role="technician",
+        )
+        user.set_password("TestPass123")
+        db.session.add(user)
+        db.session.commit()
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "technician@example.com", "password": "TestPass123"},
+    )
+    assert response.status_code == 200
+    assert response.json["token_type"] == "Bearer"
+    assert isinstance(response.json["access_token"], str)
+    assert response.json["access_token"]
