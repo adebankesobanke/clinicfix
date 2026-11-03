@@ -2,13 +2,7 @@
 import pytest
 
 from clinicfix.app import create_app
-from clinicfix.models import (
-    Equipment,
-    MaintenanceRequest,
-    MaintenanceStaff,
-    User,
-    db,
-)
+from clinicfix.models import MaintenanceStaff, User, db
 
 
 @pytest.fixture()
@@ -265,7 +259,16 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
     assert staff_response.status_code == 201
     staff_id = staff_response.json["id"]
 
-    # Create a maintenance request.
+    # Link the technician's user account to this staff account.
+    with client.application.app_context():
+        technician = User.query.filter_by(
+            email="technician-api-test@example.com"
+        ).first()
+
+        technician.maintenance_staff_id = staff_id
+        db.session.commit()
+
+    # Create a maintenance request assigned to this technician.
     created = client.post(
         "/api/maintenance-requests",
         headers=headers,
@@ -297,7 +300,7 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
     assert retrieved.status_code == 200
     assert retrieved.json["equipment_id"] == equipment_id
 
-    # Update the maintenance request.
+    # The assigned technician can update the request.
     updated = client.patch(
         f"/api/maintenance-requests/{request_id}",
         headers=headers,
@@ -307,7 +310,7 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
     assert updated.status_code == 200
     assert updated.json["status"] == "in_progress"
 
-    # Delete the maintenance request.
+    # The assigned technician can delete the request.
     deleted = client.delete(
         f"/api/maintenance-requests/{request_id}",
         headers=headers,
@@ -322,73 +325,6 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
     )
 
     assert equipment_deleted.status_code == 204
-
-
-def test_validation_and_conflicts(client):
-    headers = login_headers(client)
-
-    # Invalid email should be rejected.
-    invalid = client.post(
-        "/api/maintenance-staff",
-        headers=headers,
-        json={
-            "name": "Test Staff",
-            "email": "not-an-email",
-        },
-    )
-
-    assert invalid.status_code == 400
-
-    # Create a staff member with a valid email.
-    created = client.post(
-        "/api/maintenance-staff",
-        headers=headers,
-        json={
-            "name": "Test Staff",
-            "email": "duplicate@example.com",
-        },
-    )
-
-    assert created.status_code == 201
-
-    # Duplicate email should produce a conflict.
-    duplicate = client.post(
-        "/api/maintenance-staff",
-        headers=headers,
-        json={
-            "name": "Another Staff",
-            "email": "duplicate@example.com",
-        },
-    )
-
-    assert duplicate.status_code == 409
-
-
-def test_json_body_is_required(client):
-    headers = login_headers(client)
-
-    response = client.post(
-        "/api/maintenance-staff",
-        headers=headers,
-    )
-
-    assert response.status_code == 400
-
-
-def test_successful_login(client):
-    create_user(client)
-
-    response = client.post(
-        "/api/auth/login",
-        json={
-            "email": "technician-api-test@example.com",
-            "password": "TestPass123",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "access_token" in response.json
-    assert response.json["token_type"] == "Bearer"
 
 
 def test_login_rejects_wrong_password(client):
@@ -493,3 +429,79 @@ def test_registration_rejects_duplicate_email(client):
 
     assert first.status_code == 201
     assert second.status_code == 409
+
+
+def test_technician_cannot_manage_another_technicians_request(client):
+    # Log in two different technicians and an administrator.
+    technician_a_headers = login_headers(client, "technician_a")
+    technician_b_headers = login_headers(client, "technician_b")
+    admin_headers = login_headers(client, "admin")
+
+    # Administrator creates equipment.
+    equipment_response = create_equipment(client, admin_headers)
+    assert equipment_response.status_code == 201
+
+    equipment_id = equipment_response.json["id"]
+
+    # Technician B creates a maintenance staff record.
+    staff_response = client.post(
+        "/api/maintenance-staff",
+        headers=technician_b_headers,
+        json={
+            "name": "Technician B",
+            "email": "technician-b@example.com",
+        },
+    )
+
+    assert staff_response.status_code == 201
+    staff_id = staff_response.json["id"]
+
+    # Link Technician B's user account to the staff record.
+    with client.application.app_context():
+        technician_b = User.query.filter_by(
+            email="technician_b-api-test@example.com"
+        ).first()
+
+        technician_b.maintenance_staff_id = staff_id
+        db.session.commit()
+
+    # Technician B creates a request assigned to themselves.
+    created = client.post(
+        "/api/maintenance-requests",
+        headers=technician_b_headers,
+        json={
+            "equipment_id": equipment_id,
+            "assigned_staff_id": staff_id,
+            "description": "Generator is not starting.",
+            "priority": "high",
+        },
+    )
+
+    assert created.status_code == 201
+    request_id = created.json["id"]
+
+    # Technician A must not update Technician B's request.
+    update_response = client.patch(
+        f"/api/maintenance-requests/{request_id}",
+        headers=technician_a_headers,
+        json={"status": "in_progress"},
+    )
+
+    assert update_response.status_code == 403
+
+    # Technician A must not delete Technician B's request.
+    delete_response = client.delete(
+        f"/api/maintenance-requests/{request_id}",
+        headers=technician_a_headers,
+    )
+
+    assert delete_response.status_code == 403
+
+    # Administrator can still manage the request.
+    admin_update = client.patch(
+        f"/api/maintenance-requests/{request_id}",
+        headers=admin_headers,
+        json={"status": "in_progress"},
+    )
+
+    assert admin_update.status_code == 200

@@ -57,6 +57,24 @@ def check_references(values):
     return None
 
 
+def can_manage_request(user, maintenance_request):
+    """Check whether a user may update or delete a maintenance request."""
+
+    if user.role == "admin":
+        return True
+
+    if user.role != "technician":
+        return False
+
+    if user.maintenance_staff_id is None:
+        return False
+
+    return (
+        maintenance_request.assigned_staff_id
+        == user.maintenance_staff_id
+    )
+
+
 @api.get("/healthz")
 def health():
     return jsonify({"status": "ok", "service": "ClinicFix API"})
@@ -71,13 +89,11 @@ def register():
 
     email = values["email"]
 
-    # Check whether this email is already registered.
     existing_user = User.query.filter_by(email=email).first()
 
     if existing_user is not None:
         return error("An account with this email already exists.", 409)
 
-    # Create a new user. Public registration cannot assign admin privileges.
     user = User(
         name=values["name"],
         email=email,
@@ -106,6 +122,7 @@ def login():
         return error("Email and password are required.", 400)
 
     payload = request.get_json(silent=True)
+
     if not isinstance(payload, dict):
         return error("Email and password are required.", 400)
 
@@ -171,6 +188,9 @@ def change_password():
     if len(new_password) < 8:
         return error("New password must contain at least 8 characters.", 400)
 
+    if len(new_password.encode("utf-8")) > 72:
+        return error("New password must not exceed 72 bytes.", 400)
+
     if new_password != new_password.strip():
         return error("New password cannot begin or end with spaces.", 400)
 
@@ -210,7 +230,10 @@ def records(resource_path, record_id):
         return error("User account is inactive.", 403)
 
     if user.must_change_password:
-        return error("You must change your password before accessing resources.", 403)
+        return error(
+            "You must change your password before accessing resources.",
+            403,
+        )
 
     resource = RESOURCES.get(resource_path)
 
@@ -219,7 +242,7 @@ def records(resource_path, record_id):
 
     resource_class, resource_name = resource
 
-    # GET: Retrieve records
+    # GET: Retrieve records.
     if request.method == "GET":
         if record_id is None:
             return jsonify(
@@ -236,7 +259,7 @@ def records(resource_path, record_id):
 
         return jsonify(record.to_dict())
 
-    # POST: Create a new record
+    # POST: Create a new record.
     if request.method == "POST":
         if resource_name == "equipment" and user.role != "admin":
             return error("Only administrators can create equipment.", 403)
@@ -262,13 +285,23 @@ def records(resource_path, record_id):
 
         return jsonify(record.to_dict()), 201
 
-    # Retrieve the existing record for PATCH or DELETE
+    # Retrieve the existing record for PATCH or DELETE.
     record = db.session.get(resource_class, record_id)
 
     if record is None:
         return error("Record was not found.", 404)
 
-    # PATCH: Update an existing record
+    # Check ownership before updating or deleting a maintenance request.
+    if (
+        resource_name == "request"
+        and not can_manage_request(user, record)
+    ):
+        return error(
+            "You are not authorised to manage this maintenance request.",
+            403,
+        )
+
+    # PATCH: Update an existing record.
     if request.method == "PATCH":
         if resource_name == "equipment" and user.role != "admin":
             return error("Only administrators can update equipment.", 403)
@@ -294,7 +327,7 @@ def records(resource_path, record_id):
 
         return jsonify(record.to_dict())
 
-    # DELETE: Remove an existing record
+    # DELETE: Remove an existing record.
     if request.method == "DELETE":
         if resource_name == "equipment" and user.role != "admin":
             return error("Only administrators can delete equipment.", 403)
