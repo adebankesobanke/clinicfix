@@ -1,3 +1,4 @@
+
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
@@ -16,7 +17,9 @@ class Equipment(db.Model):
     serial_number = db.Column(db.String(100), unique=True, nullable=True)
     location = db.Column(db.String(120), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="active")
-    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    created_at = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=utc_now
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -37,7 +40,10 @@ class MaintenanceStaff(db.Model):
     phone = db.Column(db.String(40), nullable=True)
     specialty = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    created_at = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
     user = db.relationship(
         "User",
         back_populates="maintenance_staff",
@@ -56,20 +62,121 @@ class MaintenanceStaff(db.Model):
         }
 
 
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(254), nullable=False, unique=True)
+    password_hash = db.Column(db.String(256), nullable=False)
+
+    maintenance_staff_id = db.Column(
+        db.Integer,
+        db.ForeignKey("maintenance_staff.id", ondelete="RESTRICT"),
+        nullable=True,
+        unique=True,
+    )
+
+    maintenance_staff = db.relationship(
+        "MaintenanceStaff",
+        back_populates="user",
+        uselist=False,
+    )
+
+    role = db.Column(
+        db.String(20),
+        nullable=False,
+        default="technician",
+    )
+
+    is_active = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=True,
+    )
+
+    must_change_password = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=True,
+    )
+
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    def set_password(self, password: str) -> None:
+        import bcrypt
+
+        password_bytes = password.encode("utf-8")
+
+        if len(password_bytes) > 72:
+            raise ValueError("Password must not exceed 72 bytes.")
+
+        hashed = bcrypt.hashpw(
+            password_bytes,
+            bcrypt.gensalt()
+        )
+        self.password_hash = hashed.decode("utf-8")
+
+    def check_password(self, password: str) -> bool:
+        import bcrypt
+        from werkzeug.security import check_password_hash
+
+        password_bytes = password.encode("utf-8")
+
+        if self.password_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            if len(password_bytes) > 72:
+                return False
+            return bcrypt.checkpw(
+                password_bytes,
+                self.password_hash.encode("utf-8")
+            )
+
+        return check_password_hash(self.password_hash, password)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "role": self.role,
+            "is_active": self.is_active,
+            "must_change_password": self.must_change_password,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
 class MaintenanceRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+
     equipment_id = db.Column(
-        db.Integer, db.ForeignKey("equipment.id", ondelete="RESTRICT"), nullable=False
+        db.Integer,
+        db.ForeignKey("equipment.id", ondelete="RESTRICT"),
+        nullable=False,
     )
+
     assigned_staff_id = db.Column(
-        db.Integer, db.ForeignKey("maintenance_staff.id", ondelete="SET NULL"), nullable=True
+        db.Integer,
+        db.ForeignKey("maintenance_staff.id", ondelete="SET NULL"),
+        nullable=True,
     )
+
     description = db.Column(db.String(1000), nullable=False)
     priority = db.Column(db.String(20), nullable=False, default="medium")
     status = db.Column(db.String(20), nullable=False, default="open")
-    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
     updated_at = db.Column(
-        db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     def to_dict(self) -> dict:
@@ -82,47 +189,4 @@ class MaintenanceRequest(db.Model):
             "status": self.status,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-        }
-
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(254), nullable=False, unique=True)
-    password_hash = db.Column(db.String(256), nullable=False)
-    maintenance_staff_id = db.Column(
-        db.Integer,
-        db.ForeignKey("maintenance_staff.id", ondelete="RESTRICT"),
-        nullable=True,
-        unique=True,
-    )
-    maintenance_staff = db.relationship(
-        "MaintenanceStaff",
-        back_populates="user",
-        uselist=False,
-    )
-    role = db.Column(db.String(20), nullable=False, default="technician")
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
-    must_change_password = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(
-        db.DateTime(timezone=True), nullable=False, default=utc_now
-    )
-
-    def set_password(self, password: str) -> None:
-        from werkzeug.security import generate_password_hash
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password: str) -> bool:
-        from werkzeug.security import check_password_hash
-        return check_password_hash(self.password_hash, password)
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "email": self.email,
-            "role": self.role,
-            "is_active": self.is_active,
-            "must_change_password": self.must_change_password,
-            "created_at": self.created_at.isoformat(),
         }
