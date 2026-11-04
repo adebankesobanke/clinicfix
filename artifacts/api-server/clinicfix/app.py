@@ -35,7 +35,19 @@ def create_app(test_config=None):
 
     db.init_app(app)
     migrate.init_app(app, db)
-    JWTManager(app)
+    jwt = JWTManager(app)
+
+    @jwt.unauthorized_loader
+    def handle_missing_token(_reason):
+        return jsonify({"error": "Authentication token is required."}), 401
+
+    @jwt.invalid_token_loader
+    def handle_invalid_token(_reason):
+        return jsonify({"error": "Authentication token is invalid."}), 401
+
+    @jwt.expired_token_loader
+    def handle_expired_token(_jwt_header, _jwt_payload):
+        return jsonify({"error": "Authentication token has expired."}), 401
 
     app.register_blueprint(api, url_prefix="/api")
 

@@ -1,0 +1,20 @@
+SClinicFix database migrations
+=============================
+
+This directory contains the Alembic migration history managed by
+Flask-Migrate.
+
+Migration files are stored in the versions/ directory.
+
+Important safety rules:
+- Do not run migrations against production without reviewing them.
+- The baseline revision represents the original ClinicFix schema
+  from Git commit fd3d829.
+- The baseline must not include User.maintenance_staff_id.
+- A later revision introduces the optional one-to-one relationship
+  between User and MaintenanceStaff.
+
+Existing databases must have their schema verified against the
+baseline before the baseline revision is recorded as applied.
+
+Preparing migration files does not apply them to any database.

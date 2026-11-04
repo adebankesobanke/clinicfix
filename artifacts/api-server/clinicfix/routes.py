@@ -18,9 +18,12 @@ RESOURCES = {
     "maintenance-requests": (MaintenanceRequest, "request"),
 }
 
-
 def error(message, status):
     return jsonify({"error": message}), status
+
+
+def validation_error(messages):
+    return error(" ".join(messages), 400)
 
 
 def read_payload(resource, *, partial=False):
@@ -85,7 +88,7 @@ def register():
     values, errors = read_payload("user")
 
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_error(errors)
 
     email = values["email"]
 
@@ -242,6 +245,18 @@ def records(resource_path, record_id):
 
     resource_class, resource_name = resource
 
+    # Only administrators can manage maintenance staff.
+    if (
+        resource_name == "staff"
+        and request.method in {"POST", "PATCH", "DELETE"}
+        and user.role != "admin"
+    ):
+        return error(
+            "Only administrators can manage maintenance staff.",
+            403,
+        )
+
+
     # GET: Retrieve records.
     if request.method == "GET":
         if record_id is None:
@@ -267,7 +282,7 @@ def records(resource_path, record_id):
         values, errors = read_payload(resource_name)
 
         if errors:
-            return jsonify({"errors": errors}), 400
+            return validation_error(errors)
 
         if resource_name == "request":
             reference_error = check_references(values)
@@ -309,13 +324,28 @@ def records(resource_path, record_id):
         values, errors = read_payload(resource_name, partial=True)
 
         if errors:
-            return jsonify({"errors": errors}), 400
+            return validation_error(errors)
+
+
+
 
         if resource_name == "request":
+            # Only administrators can reassign maintenance requests.
+            if (
+                "assigned_staff_id" in values
+                and user.role != "admin"
+            ):
+                return error(
+                    "Only administrators can reassign maintenance requests.",
+                    403,
+                )
+
             reference_error = check_references(values)
 
             if reference_error:
                 return reference_error
+
+
 
         for field, value in values.items():
             setattr(record, field, value)

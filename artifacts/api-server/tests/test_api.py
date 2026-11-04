@@ -1,4 +1,6 @@
 
+from datetime import timedelta
+
 import pytest
 
 from clinicfix.app import create_app
@@ -89,10 +91,45 @@ def test_health_check(client):
     assert response.json["status"] == "ok"
 
 
+def test_invalid_token_returns_consistent_json_error(client):
+    response = client.get(
+        "/api/equipment",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.get_json() == {
+        "error": "Authentication token is invalid."
+    }
+
+
+def test_expired_token_returns_consistent_json_error(client):
+    from flask_jwt_extended import create_access_token
+
+    with client.application.app_context():
+        token = create_access_token(
+            identity="1",
+            expires_delta=timedelta(seconds=-1),
+        )
+
+    response = client.get(
+        "/api/equipment",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.get_json() == {
+        "error": "Authentication token has expired."
+    }
+
+
 def test_resource_access_requires_authentication(client):
     response = client.get("/api/equipment")
 
     assert response.status_code == 401
+    assert response.get_json() == {
+        "error": "Authentication token is required."
+    }
 
 
 def test_technician_cannot_create_equipment(client):
@@ -195,7 +232,8 @@ def test_equipment_crud(client):
 
 
 def test_staff_crud(client):
-    headers = login_headers(client)
+    # Staff creation and management are tested using an administrator.
+    headers = login_headers(client, "admin")
 
     # Create maintenance staff.
     created = client.post(
@@ -239,17 +277,19 @@ def test_staff_crud(client):
 
 
 def test_maintenance_request_crud_and_equipment_delete_guard(client):
-    headers = login_headers(client, "technician")
+    technician_headers = login_headers(client, "technician")
     admin_headers = login_headers(client, "admin")
 
+    # Administrator creates equipment.
     equipment_response = create_equipment(client, admin_headers)
     assert equipment_response.status_code == 201
 
     equipment_id = equipment_response.json["id"]
 
+    # Administrator creates a maintenance staff record.
     staff_response = client.post(
         "/api/maintenance-staff",
-        headers=headers,
+        headers=admin_headers,
         json={
             "name": "Jane Technician",
             "email": "jane@example.com",
@@ -268,10 +308,10 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
         technician.maintenance_staff_id = staff_id
         db.session.commit()
 
-    # Create a maintenance request assigned to this technician.
+    # Technician creates a maintenance request assigned to themselves.
     created = client.post(
         "/api/maintenance-requests",
-        headers=headers,
+        headers=technician_headers,
         json={
             "equipment_id": equipment_id,
             "assigned_staff_id": staff_id,
@@ -294,26 +334,26 @@ def test_maintenance_request_crud_and_equipment_delete_guard(client):
     # Retrieve the maintenance request.
     retrieved = client.get(
         f"/api/maintenance-requests/{request_id}",
-        headers=headers,
+        headers=technician_headers,
     )
 
     assert retrieved.status_code == 200
     assert retrieved.json["equipment_id"] == equipment_id
 
-    # The assigned technician can update the request.
+    # The assigned technician can update their own request.
     updated = client.patch(
         f"/api/maintenance-requests/{request_id}",
-        headers=headers,
+        headers=technician_headers,
         json={"status": "in_progress"},
     )
 
     assert updated.status_code == 200
     assert updated.json["status"] == "in_progress"
 
-    # The assigned technician can delete the request.
+    # The assigned technician can delete their own request.
     deleted = client.delete(
         f"/api/maintenance-requests/{request_id}",
-        headers=headers,
+        headers=technician_headers,
     )
 
     assert deleted.status_code == 204
@@ -353,6 +393,60 @@ def test_inactive_user_cannot_login(client):
     )
 
     assert response.status_code == 401
+
+
+def test_user_must_change_password_before_accessing_resources(client):
+    # Log in a test user.
+    headers = login_headers(client, "technician")
+
+    # Mark the user as requiring a password change.
+    with client.application.app_context():
+        user = User.query.filter_by(
+            email="technician-api-test@example.com"
+        ).first()
+
+        user.must_change_password = True
+        db.session.commit()
+
+    # The user cannot access equipment before changing the password.
+    blocked = client.get(
+        "/api/equipment",
+        headers=headers,
+    )
+
+    assert blocked.status_code == 403
+    assert blocked.json["error"] == (
+        "You must change your password before accessing resources."
+    )
+
+    # The user can change their password.
+    changed = client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={
+            "current_password": "TestPass123",
+            "new_password": "NewSecurePass456",
+        },
+    )
+
+    assert changed.status_code == 200
+
+    # The user can now access equipment.
+    allowed = client.get(
+        "/api/equipment",
+        headers=headers,
+    )
+
+    assert allowed.status_code == 200
+
+    # Verify the password-change flag and new password.
+    with client.application.app_context():
+        user = User.query.filter_by(
+            email="technician-api-test@example.com"
+        ).first()
+
+        assert user.must_change_password is False
+        assert user.check_password("NewSecurePass456")
 
 
 def test_login_requires_email_and_password(client):
@@ -443,10 +537,10 @@ def test_technician_cannot_manage_another_technicians_request(client):
 
     equipment_id = equipment_response.json["id"]
 
-    # Technician B creates a maintenance staff record.
+    # Administrator creates a maintenance staff record for Technician B.
     staff_response = client.post(
         "/api/maintenance-staff",
-        headers=technician_b_headers,
+        headers=admin_headers,
         json={
             "name": "Technician B",
             "email": "technician-b@example.com",
@@ -505,3 +599,18 @@ def test_technician_cannot_manage_another_technicians_request(client):
     )
 
     assert admin_update.status_code == 200
+
+
+def test_validation_errors_use_consistent_json_format(client):
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "name": "",
+            "email": "invalid-email",
+            "password": "123",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "error" in response.get_json()
+    assert "errors" not in response.get_json()
